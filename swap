@@ -1,12 +1,24 @@
 #!/bin/bash
 
-if [ "$EUID" -ne 0 ]; then echo "Run it with root | Root ile çalıştırınız"
+if [ "$EUID" -ne 0 ]; then
+    echo "Run it with root | Root ile çalıştırınız"
+    exit 1
+fi
 
-apt install linux-image-6.12.31-amd64
+wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.9.tar.xz
+tar xf linux-6.18.9.tar.xz
+cp /boot/config-$(uname -r) .config
+make olddefconfig
+sed -i 's/^CONFIG_LOCALVERSION=".*"/CONFIG_LOCALVERSION="-pardus25-amd64"/' .config
+make -j$(nproc)
+make modules_install 
+make install
+update-grub
+update-initramfs -c -k 6.18.9+pardus25-amd64
+
 apt remove --autoremove --purge linux-image-6.12.57+deb13-amd64
 apt remove --autoremove --purge linux-image-6.12.63+deb13-amd64
 
 echo "Kernel has been swapped succesfully | Çekirdek başarıyla değiştirildi."
 
-rm -f swap
 exit 0
