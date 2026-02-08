@@ -8,6 +8,7 @@ fi
 apt install wget
 wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.9.tar.xz
 tar xf linux-6.18.9.tar.xz
+cd linux-6.18.9
 cp /boot/config-$(uname -r) .config
 make olddefconfig
 sed -i 's/^CONFIG_LOCALVERSION=".*"/CONFIG_LOCALVERSION="-pardus25-amd64"/' .config
