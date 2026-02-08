@@ -7,7 +7,7 @@ cd linux-6.18.9
 make olddefconfig
 sed -i 's/^CONFIG_LOCALVERSION=".*"/CONFIG_LOCALVERSION="-pardus25-amd64"/' .config
 make -j$(nproc)
-make modules_install 
+sudo make modules_install 
 sudo make install
 sudo update-grub
 sudo update-initramfs -c -k 6.18.9-pardus25-amd64
