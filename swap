@@ -1,6 +1,6 @@
 #!/bin/bash
 
-sudo apt install wget make
+sudo apt install bzip2 git vim make gcc libncurses-dev flex bison bc cpio libelf-dev libssl-dev syslinux dosfstools -y -qqq
 wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.9.tar.xz
 tar xf linux-6.18.9.tar.xz
 cd linux-6.18.9
