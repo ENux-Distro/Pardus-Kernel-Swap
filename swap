@@ -5,6 +5,7 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
+apt install wget
 wget https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.9.tar.xz
 tar xf linux-6.18.9.tar.xz
 cp /boot/config-$(uname -r) .config
