@@ -1,0 +1,69 @@
+#!/bin/bash
+
+APT="apt"
+UPDATE_GRUB="update-grub"
+
+# --- Language Selection ---
+LANGUAGE=$(whiptail --title "Kernel Swap" --menu "Select Language / Dil Seçiniz" 15 60 2 \
+"EN" "English" \
+"TR" "Türkçe" \
+3>&1 1>&2 2>&3) || exit 0
+
+# --- Language Text ---
+if [ "$LANGUAGE" = "TR" ]; then
+    TITLE="Pardus Çekirdek Değiştirici"
+    MENU_TEXT="Kurmak istediğiniz çekirdek sürümünü seçin:"
+    CONFIRM_TEXT="Bu çekirdek kurulsun mu:"
+    SUCCESS_TEXT="başarıyla kuruldu.\nKullanmak için sistemi yeniden başlatın."
+    FAIL_TEXT="Çekirdek kurulumu başarısız oldu."
+    CANCEL_TEXT="Çıkış"
+else
+    TITLE="Pardus Kernel Swap"
+    MENU_TEXT="Select kernel version to install:"
+    CONFIRM_TEXT="Install this kernel:"
+    SUCCESS_TEXT="installed successfully.\nReboot to use it."
+    FAIL_TEXT="Kernel installation failed."
+    CANCEL_TEXT="Cancel"
+fi
+
+# --- Kernel Menu ---
+CHOICE=$(whiptail --title "$TITLE" --menu "$MENU_TEXT" 20 70 6 \
+"6.12.73+deb13-amd64" "(LTS)" \
+"6.16.12+deb13-amd64" "" \
+"6.17.8+deb13-amd64" "" \
+"6.18.5+deb13-amd64" "(LTS)" \
+"exit" "$CANCEL_TEXT" \
+3>&1 1>&2 2>&3) || exit 0
+
+[ "$CHOICE" = "exit" ] && exit 0
+
+PACKAGE="linux-image-$CHOICE"
+
+# --- Confirmation ---
+whiptail --yesno "$CONFIRM_TEXT $CHOICE ?" 10 60 || exit 0
+
+# --- Install ---
+sudo $APT install -y "$PACKAGE"
+if [ $? -ne 0 ]; then
+    whiptail --msgbox "$FAIL_TEXT" 10 60
+    exit 1
+fi
+
+sudo $UPDATE_GRUB
+
+whiptail --msgbox "Kernel $CHOICE $SUCCESS_TEXT" 10 60
+
+# --- Reboot Prompt ---
+if [ "$LANGUAGE" = "TR" ]; then
+    REBOOT_TEXT="Sistemi şimdi yeniden başlatmak ister misiniz?"
+else
+    REBOOT_TEXT="Would you like to reboot now?"
+fi
+
+whiptail --yesno "$REBOOT_TEXT" 10 60
+if [ $? -eq 0 ]; then
+    sudo reboot
+fi
+
+exit 0
+
