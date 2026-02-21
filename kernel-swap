@@ -2,61 +2,122 @@
 
 set -e
 
-TITLE="Experimental Kernel Swap (VM ONLY)"
 APT="apt"
+UPDATE_GRUB="update-grub"
+TEMP_REPO="/etc/apt/sources.list.d/debian-kernel-temp.list"
+PIN_FILE="/etc/apt/preferences.d/kernel-pin"
+LOG_FILE="/var/log/pardus-kernel-swap.log"
 
-DEBIAN_SOURCES="/tmp/sources-debian.list"
-PARDUS_SOURCES="/tmp/sources-pardus.list"
-BACKUP="/etc/apt/sources.list.bak"
+exec > >(tee -a "$LOG_FILE") 2>&1
 
-# --- Write Debian Sources ---
-cat > "$DEBIAN_SOURCES" <<EOF
-deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
-deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
-deb http://security.debian.org/debian-security/ trixie-security main contrib non-free non-free-firmware
-deb http://deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware
-EOF
+# --- Root Check ---
+if [ "$EUID" -ne 0 ]; then
+    echo "Please run as root."
+    exit 1
+fi
 
-# --- Write Pardus Sources ---
-cat > "$PARDUS_SOURCES" <<EOF
-deb http://depo.pardus.org.tr/pardus yirmibes main contrib non-free non-free-firmware
-deb http://depo.pardus.org.tr/pardus yirmibes-deb main contrib non-free non-free-firmware
-deb http://depo.pardus.org.tr/guvenlik yirmibes-deb main contrib non-free non-free-firmware
-EOF
+CURRENT_KERNEL=$(uname -r)
+
+# --- Language Selection ---
+LANGUAGE=$(whiptail --title "Kernel Swap" --menu "Select Language / Dil Seçiniz" 15 60 2 \
+"EN" "English" \
+"TR" "Türkçe" \
+3>&1 1>&2 2>&3) || exit 0
+
+if [ "$LANGUAGE" = "TR" ]; then
+    TITLE="Pardus Çekirdek Değiştirici"
+    MENU_TEXT="Kurmak istediğiniz çekirdek sürümünü seçin:"
+    CONFIRM_TEXT="Bu çekirdek kurulsun mu:"
+    SUCCESS_TEXT="başarıyla kuruldu.\nKullanmak için sistemi yeniden başlatın."
+    FAIL_TEXT="Çekirdek kurulumu başarısız oldu."
+    CANCEL_TEXT="Çıkış"
+    CURRENT_TEXT="Mevcut çekirdek:"
+    REBOOT_TEXT="Sistemi şimdi yeniden başlatmak ister misiniz?"
+    ALREADY_TEXT="Bu çekirdek zaten kurulu."
+else
+    TITLE="Pardus Kernel Swap"
+    MENU_TEXT="Select kernel version to install:"
+    CONFIRM_TEXT="Install this kernel:"
+    SUCCESS_TEXT="installed successfully.\nReboot to use it."
+    FAIL_TEXT="Kernel installation failed."
+    CANCEL_TEXT="Cancel"
+    CURRENT_TEXT="Current running kernel:"
+    REBOOT_TEXT="Would you like to reboot now?"
+    ALREADY_TEXT="This kernel is already installed."
+fi
+
+# --- Show Current Kernel ---
+whiptail --msgbox "$CURRENT_TEXT $CURRENT_KERNEL" 10 60
 
 # --- Kernel Menu ---
-CHOICE=$(whiptail --title "$TITLE" --menu "Select Kernel Version:" 20 70 4 \
-"6.16.12+deb13-amd64" "Stable" \
-"6.17.8+deb13-amd64" "Testing" \
-"6.18.5+deb13-amd64" "LTS" \
-"exit" "Cancel" \
+CHOICE=$(whiptail --title "$TITLE" --menu "$MENU_TEXT" 20 70 6 \
+"6.12.73+deb13-amd64" "(LTS)" \
+"6.16.12+deb13-amd64" "" \
+"6.17.8+deb13-amd64" "" \
+"6.18.5+deb13-amd64" "(LTS)" \
+"exit" "$CANCEL_TEXT" \
 3>&1 1>&2 2>&3) || exit 0
 
 [ "$CHOICE" = "exit" ] && exit 0
 
-IMAGE="linux-image-$CHOICE"
-HEADERS="linux-headers-$CHOICE"
+# --- Check if already installed ---
+if dpkg -l | grep -q "linux-image-$CHOICE"; then
+    whiptail --msgbox "$ALREADY_TEXT" 10 60
+    exit 0
+fi
 
-whiptail --yesno "Switch to Debian repos and install $CHOICE ?" 10 70 || exit 0
+whiptail --yesno "$CONFIRM_TEXT $CHOICE ?" 10 60 || exit 0
 
-# --- Backup current sources ---
-sudo cp /etc/apt/sources.list "$BACKUP"
+echo "Starting kernel swap to $CHOICE"
 
-# --- Switch to Debian ---
-sudo cp "$DEBIAN_SOURCES" /etc/apt/sources.list
-sudo $APT update
+# --- Backup GRUB ---
+cp /boot/grub/grub.cfg /boot/grub/grub.cfg.bak || true
+
+# --- Add Temporary Debian Repo ---
+echo "deb http://deb.debian.org/debian trixie main" > "$TEMP_REPO"
+
+# --- Add APT Pinning ---
+cat > "$PIN_FILE" <<EOF
+Package: *
+Pin: release o=Debian
+Pin-Priority: 100
+
+Package: linux-image-*
+Pin: release o=Debian
+Pin-Priority: 1001
+
+Package: linux-modules-*
+Pin: release o=Debian
+Pin-Priority: 1001
+EOF
+
+# --- Update ---
+$APT update
 
 # --- Install Kernel ---
-sudo $APT install -y "$IMAGE" "$HEADERS"
+if ! $APT install -y \
+linux-image-$CHOICE \
+linux-modules-$CHOICE \
+linux-headers-$CHOICE; then
+    whiptail --msgbox "$FAIL_TEXT" 10 60
+    rm -f "$TEMP_REPO" "$PIN_FILE"
+    $APT update
+    exit 1
+fi
 
-# --- Restore Pardus ---
-sudo cp "$PARDUS_SOURCES" /etc/apt/sources.list
-sudo $APT update
+# --- Update GRUB ---
+$UPDATE_GRUB
 
-# --- Update grub ---
-sudo update-grub
+# --- Cleanup ---
+rm -f "$TEMP_REPO" "$PIN_FILE"
+$APT update
 
-whiptail --msgbox "Kernel $CHOICE installed.\nRepos restored to Pardus.\nReboot recommended." 12 70
+whiptail --msgbox "Kernel $CHOICE $SUCCESS_TEXT" 10 60
+
+# --- Reboot Prompt ---
+whiptail --yesno "$REBOOT_TEXT" 10 60
+if [ $? -eq 0 ]; then
+    reboot
+fi
 
 exit 0
-
