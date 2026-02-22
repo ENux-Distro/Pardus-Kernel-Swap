@@ -1,123 +1,163 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-set -e
+DEB_LINE="deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware"
+SOURCES="/etc/apt/sources.list"
+BACKUP_SUFFIX="$(date +%Y%m%d%H%M%S)"
+BACKUP="${SOURCES}.pardus-kernel-swap.bak-${BACKUP_SUFFIX}"
+ADDED_LINE=0
+SUDO=""
+[ "$(id -u)" -ne 0 ] && SUDO="sudo"
 
-APT="apt"
-UPDATE_GRUB="update-grub"
-TEMP_REPO="/etc/apt/sources.list.d/debian-kernel-temp.list"
-PIN_FILE="/etc/apt/preferences.d/kernel-pin"
-LOG_FILE="/var/log/pardus-kernel-swap.log"
+# Kernel list
+declare -A KERNELS=(
+  ["6.12.73+deb13-amd64"]="6.12.73+deb13-amd64"
+  ["6.16.12+deb13-amd64"]="6.16.12+deb13-amd64"
+  ["6.17.8+deb13-amd64"]="6.17.8+deb13-amd64"
+  ["6.18.5+deb13-amd64"]="6.18.5+deb13-amd64"
+)
 
-exec > >(tee -a "$LOG_FILE") 2>&1
-
-# --- Root Check ---
-if [ "$EUID" -ne 0 ]; then
-    echo "Please run as root."
-    exit 1
+# ensure whiptail exists
+if ! command -v whiptail >/dev/null 2>&1; then
+  echo "whiptail not found — installing..."
+  ${SUDO} apt-get update
+  ${SUDO} apt-get install -y whiptail
 fi
 
-CURRENT_KERNEL=$(uname -r)
+# language pick
+LANG_CHOICE=$(whiptail --title "Pardus Kernel Swap" --menu "Choose language / Dil seçin" 12 60 2 \
+  "EN" "English" \
+  "TR" "Türkçe" 3>&1 1>&2 2>&3) || { echo "Operation cancelled."; exit 1; }
 
-# --- Language Selection ---
-LANGUAGE=$(whiptail --title "Kernel Swap" --menu "Select Language / Dil Seçiniz" 15 60 2 \
-"EN" "English" \
-"TR" "Türkçe" \
-3>&1 1>&2 2>&3) || exit 0
-
-if [ "$LANGUAGE" = "TR" ]; then
-    TITLE="Pardus Çekirdek Değiştirici"
-    MENU_TEXT="Kurmak istediğiniz çekirdek sürümünü seçin:"
-    CONFIRM_TEXT="Bu çekirdek kurulsun mu:"
-    SUCCESS_TEXT="başarıyla kuruldu.\nKullanmak için sistemi yeniden başlatın."
-    FAIL_TEXT="Çekirdek kurulumu başarısız oldu."
-    CANCEL_TEXT="Çıkış"
-    CURRENT_TEXT="Mevcut çekirdek:"
-    REBOOT_TEXT="Sistemi şimdi yeniden başlatmak ister misiniz?"
-    ALREADY_TEXT="Bu çekirdek zaten kurulu."
+if [ "${LANG_CHOICE}" = "tr" ]; then
+  MSG_SELECTKERNEL="Çekirdeği Seçiniz"
+  MSG_CANCELLED="İşlem iptal edildi."
+  MSG_INSTALLING="Yükleniyor..."
+  MSG_DONE="Tamamlandı."
+  MSG_ADDING="Depo ekleniyor..."
+  MSG_REMOVING="Depo kaldırılıyor..."
+  MSG_UPDATING="apt güncelleniyor..."
+  MSG_INSTALL_KERNEL="Çekirdek kuruluyor..."
+  MSG_GRUB="GRUB güncelleniyor..."
+  MSG_BACKUP="Yedek oluşturuldu:"
+  MSG_REPO_ALREADY="Depo satırı zaten var."
+  MSG_REPO_ADDED="Depo satırı eklendi."
+  MSG_NO_SELECTION="Seçim yapılmadı. Çıkılıyor."
+  MSG_CONFIRM="Seçilen çekirdeği kurmak istiyor musunuz?"
+  MSG_HEADERS_MISSING="Başlıklar bulunamadı ya da kurulum başarısız — devam ediliyor."
+  MSG_GRUB_NOT_FOUND="GRUB güncelleme komutu bulunamadı. update-grub manuel çalıştırmanız gerekebilir."
+  MSG_INSTALL_WARN="Uyarı: paket kurulamadı. Devam etmeye çalışılıyor."
+  MSG_BACKUP_SAVED="Yedek kaydedildi:"
 else
-    TITLE="Pardus Kernel Swap"
-    MENU_TEXT="Select kernel version to install:"
-    CONFIRM_TEXT="Install this kernel:"
-    SUCCESS_TEXT="installed successfully.\nReboot to use it."
-    FAIL_TEXT="Kernel installation failed."
-    CANCEL_TEXT="Cancel"
-    CURRENT_TEXT="Current running kernel:"
-    REBOOT_TEXT="Would you like to reboot now?"
-    ALREADY_TEXT="This kernel is already installed."
+  MSG_SELECTKERNEL="Chose the Kernel"
+  MSG_CANCELLED="Cancelled."
+  MSG_INSTALLING="Installing..."
+  MSG_DONE="Done."
+  MSG_ADDING="Adding repo..."
+  MSG_REMOVING="Removing repo..."
+  MSG_UPDATING="Running apt update..."
+  MSG_INSTALL_KERNEL="Installing kernel..."
+  MSG_GRUB="Updating GRUB..."
+  MSG_BACKUP="Backup saved to:"
+  MSG_REPO_ALREADY="Repo line already present."
+  MSG_REPO_ADDED="Added repo line."
+  MSG_NO_SELECTION="No kernel selected. Exiting."
+  MSG_CONFIRM="Install selected kernel?"
+  MSG_HEADERS_MISSING="Headers not found or failed to install — continuing."
+  MSG_GRUB_NOT_FOUND="Could not find a grub update command. You may need to run update-grub manually."
+  MSG_INSTALL_WARN="Warning: package failed to install. Trying to continue."
+  MSG_BACKUP_SAVED="Backup saved to:"
 fi
 
-# --- Show Current Kernel ---
-whiptail --msgbox "$CURRENT_TEXT $CURRENT_KERNEL" 10 60
+# Build kernel menu items
+MENU_ITEMS=()
+for k in "${!KERNELS[@]}"; do
+  MENU_ITEMS+=("$k" "" "off")
+done
 
-# --- Kernel Menu ---
-CHOICE=$(whiptail --title "$TITLE" --menu "$MENU_TEXT" 20 70 6 \
-"6.12.73+deb13-amd64" "(LTS)" \
-"6.16.12+deb13-amd64" "" \
-"6.17.8+deb13-amd64" "" \
-"6.18.5+deb13-amd64" "(LTS)" \
-"exit" "$CANCEL_TEXT" \
-3>&1 1>&2 2>&3) || exit 0
+SEL=$(whiptail --title "Pardus Kernel Swap" --radiolist "$MSG_SELECTKERNEL" 16 70 6 \
+  "${MENU_ITEMS[@]}" 3>&1 1>&2 2>&3) || { echo "${MSG_CANCELLED}"; exit 1; }
 
-[ "$CHOICE" = "exit" ] && exit 0
-
-# --- Check if already installed ---
-if dpkg -l | grep -q "linux-image-$CHOICE"; then
-    whiptail --msgbox "$ALREADY_TEXT" 10 60
-    exit 0
+if [ -z "${SEL}" ]; then
+  echo "${MSG_NO_SELECTION}"
+  exit 1
 fi
 
-whiptail --yesno "$CONFIRM_TEXT $CHOICE ?" 10 60 || exit 0
-
-echo "Starting kernel swap to $CHOICE"
-
-# --- Backup GRUB ---
-cp /boot/grub/grub.cfg /boot/grub/grub.cfg.bak || true
-
-# --- Add Temporary Debian Repo ---
-echo "deb http://deb.debian.org/debian trixie main" > "$TEMP_REPO"
-
-# --- Add APT Pinning ---
-cat > "$PIN_FILE" <<EOF
-Package: *
-Pin: release o=Debian
-Pin-Priority: 100
-
-Package: linux-image-*
-Pin: release o=Debian
-Pin-Priority: 1001
-
-Package: linux-modules-*
-Pin: release o=Debian
-Pin-Priority: 1001
-EOF
-
-# --- Update ---
-$APT update
-
-# --- Install Kernel ---
-if ! $APT install -y \
-linux-image-$CHOICE \
-linux-modules-$CHOICE \
-linux-headers-$CHOICE; then
-    whiptail --msgbox "$FAIL_TEXT" 10 60
-    rm -f "$TEMP_REPO" "$PIN_FILE"
-    $APT update
-    exit 1
+# confirm
+if ! whiptail --title "Confirm / Onay" --yesno "${MSG_CONFIRM}\n\n${SEL}\n\n${MSG_ADDING}\n${SOURCES}" 12 70; then
+  echo "${MSG_CANCELLED}"
+  exit 0
 fi
 
-# --- Update GRUB ---
-$UPDATE_GRUB
+# backup
+echo "${MSG_ADDING}"
+${SUDO} cp -a "${SOURCES}" "${BACKUP}"
+echo "${MSG_BACKUP_SAVED} ${BACKUP}"
 
-# --- Cleanup ---
-rm -f "$TEMP_REPO" "$PIN_FILE"
-$APT update
-
-whiptail --msgbox "Kernel $CHOICE $SUCCESS_TEXT" 10 60
-
-# --- Reboot Prompt ---
-whiptail --yesno "$REBOOT_TEXT" 10 60
-if [ $? -eq 0 ]; then
-    reboot
+# add repo line if not present
+if ! grep -Fxq "${DEB_LINE}" "${SOURCES}"; then
+  printf '%s\n' "${DEB_LINE}" | ${SUDO} tee -a "${SOURCES}" >/dev/null
+  ADDED_LINE=1
+  echo "${MSG_REPO_ADDED}"
+else
+  echo "${MSG_REPO_ALREADY}"
 fi
 
+# ensure cleanup removes the line we added
+cleanup() {
+  local rc=$?
+  if [ "${ADDED_LINE}" -eq 1 ]; then
+    echo "${MSG_REMOVING}"
+    # remove exact line(s) we added (use | as sed delimiter)
+    ${SUDO} sed -i.bak -e "\|^${DEB_LINE}$|d" "${SOURCES}" || true
+    echo "${MSG_REMOVING} ${SOURCES}"
+    # refresh apt (best-effort)
+    ${SUDO} apt-get update >/dev/null 2>&1 || true
+  fi
+  exit $rc
+}
+trap cleanup EXIT
+
+# apt update
+echo "${MSG_UPDATING}"
+${SUDO} apt-get update
+
+# install image and headers (best-effort)
+PKG_IMAGE="linux-image-${SEL}"
+PKG_HEADERS="linux-headers-${SEL}"
+
+echo "${MSG_INSTALL_KERNEL} ${PKG_IMAGE}"
+if ! ${SUDO} apt-get install -y "${PKG_IMAGE}"; then
+  echo "${MSG_INSTALL_WARN} ${PKG_IMAGE}"
+fi
+
+echo "-> ${MSG_INSTALL_KERNEL} ${PKG_HEADERS}"
+if ! ${SUDO} apt-get install -y "${PKG_HEADERS}"; then
+  echo "${MSG_HEADERS_MISSING}"
+fi
+
+# update grub
+echo "${MSG_GRUB}"
+if command -v update-grub >/dev/null 2>&1; then
+  ${SUDO} update-grub
+elif command -v update-grub2 >/dev/null 2>&1; then
+  ${SUDO} update-grub2
+elif command -v grub-mkconfig >/dev/null 2>&1; then
+  ${SUDO} grub-mkconfig -o /boot/grub/grub.cfg
+elif command -v grub2-mkconfig >/dev/null 2>&1; then
+  ${SUDO} grub2-mkconfig -o /boot/grub/grub.cfg
+else
+  echo "${MSG_GRUB_NOT_FOUND}"
+fi
+
+# proactively remove repo if we added it (trap will be a safety net too)
+if [ "${ADDED_LINE}" -eq 1 ]; then
+  echo "${MSG_REMOVING}"
+  ${SUDO} sed -i.bak -e "\|^${DEB_LINE}$|d" "${SOURCES}" || true
+  ADDED_LINE=0
+  ${SUDO} apt-get update || true
+  echo "${MSG_DONE}"
+fi
+
+whiptail --title "Pardus Kernel Swap" --msgbox "${MSG_DONE}\n\n${SEL}" 10 60
 exit 0
