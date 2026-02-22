@@ -1,11 +1,31 @@
 #!/usr/bin/env bash
+# pardus-kernel-swap-override.sh
+# OVERWRITE /etc/apt/sources.list with Debian Trixie sources, install chosen kernel, then restore original sources.list
+#
+# VERY RISKY: this can cause apt to pull Debian packages and dependencies.
+# Use in a VM or only if you accept the risk. Do NOT run apt upgrade here.
 set -euo pipefail
 
-DEB_LINE="deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware"
+DEB_SOURCES_CONTENT="# See https://wiki.debian.org/SourcesList for more information.
+deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
+deb-src http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
+
+deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
+deb-src http://deb.debian.org/debian trixie-updates main contrib non-free non-free-firmware
+
+deb http://security.debian.org/debian-security/ trixie-security main contrib non-free non-free-firmware
+deb-src http://security.debian.org/debian-security/ trixie-security main contrib non-free non-free-firmware
+
+# Backports allow you to install newer versions of software made available for this release
+deb http://deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware
+deb-src http://deb.debian.org/debian trixie-backports main contrib non-free non-free-firmware
+"
+
 SOURCES="/etc/apt/sources.list"
 BACKUP_SUFFIX="$(date +%Y%m%d%H%M%S)"
-BACKUP="${SOURCES}.pardus-kernel-swap.bak-${BACKUP_SUFFIX}"
-ADDED_LINE=0
+BACKUP="${SOURCES}.pardus-kernel-swap.override.bak-${BACKUP_SUFFIX}"
+TMP_SOURCES="/tmp/debian-trixie-sources-${BACKUP_SUFFIX}.list"
+ADDED_OVERRIDE=0
 SUDO=""
 [ "$(id -u)" -ne 0 ] && SUDO="sudo"
 
@@ -17,7 +37,7 @@ declare -A KERNELS=(
   ["6.18.5+deb13-amd64"]="6.18.5+deb13-amd64"
 )
 
-# ensure whiptail exists
+# Make sure whiptail is installed
 if ! command -v whiptail >/dev/null 2>&1; then
   echo "whiptail not found — installing..."
   ${SUDO} apt-get update
@@ -25,115 +45,106 @@ if ! command -v whiptail >/dev/null 2>&1; then
 fi
 
 # language pick
-LANG_CHOICE=$(whiptail --title "Pardus Kernel Swap" --menu "Choose language / Dil seçin" 12 60 2 \
-  "EN" "English" \
-  "TR" "Türkçe" 3>&1 1>&2 2>&3) || { echo "Operation cancelled."; exit 1; }
+LANG_CHOICE=$(whiptail --title "Pardus Kernel Swap (OVERRIDE MODE)" --menu "Choose language / Dil seçin" 12 60 2 \
+  "en" "English" \
+  "tr" "Türkçe" 3>&1 1>&2 2>&3) || { echo "Cancelled."; exit 1; }
 
 if [ "${LANG_CHOICE}" = "tr" ]; then
-  MSG_SELECTKERNEL="Çekirdeği Seçiniz"
+  MSG_SELECTKERNEL="Çekirdeği seçiniz"
+  MSG_CONFIRM_RISK="UYARI: Bu işlem /etc/apt/sources.list dosyasını tamamen Debian Trixie ile değiştirir. Devam etmek istiyor musunuz?"
   MSG_CANCELLED="İşlem iptal edildi."
-  MSG_INSTALLING="Yükleniyor..."
-  MSG_DONE="Tamamlandı."
-  MSG_ADDING="Depo ekleniyor..."
-  MSG_REMOVING="Depo kaldırılıyor..."
+  MSG_BACKUP_SAVE="Orijinal sources.list yedeklendi:"
+  MSG_WRITING_SOURCES="Yeni sources.list yazılıyor..."
   MSG_UPDATING="apt güncelleniyor..."
   MSG_INSTALL_KERNEL="Çekirdek kuruluyor..."
+  MSG_HEADERS="Başlıklar kuruluyor..."
   MSG_GRUB="GRUB güncelleniyor..."
-  MSG_BACKUP="Yedek oluşturuldu:"
-  MSG_REPO_ALREADY="Depo satırı zaten var."
-  MSG_REPO_ADDED="Depo satırı eklendi."
-  MSG_NO_SELECTION="Seçim yapılmadı. Çıkılıyor."
-  MSG_CONFIRM="Seçilen çekirdeği kurmak istiyor musunuz?"
-  MSG_HEADERS_MISSING="Başlıklar bulunamadı ya da kurulum başarısız — devam ediliyor."
-  MSG_GRUB_NOT_FOUND="GRUB güncelleme komutu bulunamadı. update-grub manuel çalıştırmanız gerekebilir."
-  MSG_INSTALL_WARN="Uyarı: paket kurulamadı. Devam etmeye çalışılıyor."
-  MSG_BACKUP_SAVED="Yedek kaydedildi:"
+  MSG_RESTORE="Orijinal sources.list geri yükleniyor..."
+  MSG_DONE="Tamamlandı."
+  MSG_INSTALL_WARN="Uyarı: paket kurulamadı. Devam ediliyor."
+  MSG_GRUB_NOT_FOUND="GRUB güncelleme komutu bulunamadı; update-grub manuel çalıştırın."
 else
-  MSG_SELECTKERNEL="Chose the Kernel"
+  MSG_SELECTKERNEL="Choose the kernel"
+  MSG_CONFIRM_RISK="WARNING: This will *replace* /etc/apt/sources.list with Debian Trixie sources. Continue?"
   MSG_CANCELLED="Cancelled."
-  MSG_INSTALLING="Installing..."
-  MSG_DONE="Done."
-  MSG_ADDING="Adding repo..."
-  MSG_REMOVING="Removing repo..."
+  MSG_BACKUP_SAVE="Original sources.list backed up to:"
+  MSG_WRITING_SOURCES="Writing new sources.list..."
   MSG_UPDATING="Running apt update..."
   MSG_INSTALL_KERNEL="Installing kernel..."
+  MSG_HEADERS="Installing headers..."
   MSG_GRUB="Updating GRUB..."
-  MSG_BACKUP="Backup saved to:"
-  MSG_REPO_ALREADY="Repo line already present."
-  MSG_REPO_ADDED="Added repo line."
-  MSG_NO_SELECTION="No kernel selected. Exiting."
-  MSG_CONFIRM="Install selected kernel?"
-  MSG_HEADERS_MISSING="Headers not found or failed to install — continuing."
-  MSG_GRUB_NOT_FOUND="Could not find a grub update command. You may need to run update-grub manually."
+  MSG_RESTORE="Restoring original sources.list..."
+  MSG_DONE="Done."
   MSG_INSTALL_WARN="Warning: package failed to install. Trying to continue."
-  MSG_BACKUP_SAVED="Backup saved to:"
+  MSG_GRUB_NOT_FOUND="Could not find a grub update command. You may need to run update-grub manually."
 fi
 
-# Build kernel menu items
-MENU_ITEMS=()
-for k in "${!KERNELS[@]}"; do
-  MENU_ITEMS+=("$k" "" "off")
-done
+# Build centered-looking kernel menu (tags are numbers; descriptions padded to appear centered)
+MENU_ITEMS=(
+  "1" "          6.12.73+deb13-amd64          " "off"
+  "2" "          6.16.12+deb13-amd64          " "off"
+  "3" "          6.17.8+deb13-amd64           " "off"
+  "4" "          6.18.5+deb13-amd64           " "off"
+)
 
-SEL=$(whiptail --title "Pardus Kernel Swap" --radiolist "$MSG_SELECTKERNEL" 16 70 6 \
+SEL_NUM=$(whiptail --title "Pardus Kernel Swap (OVERRIDE MODE)" --radiolist "$MSG_SELECTKERNEL" 16 70 6 \
   "${MENU_ITEMS[@]}" 3>&1 1>&2 2>&3) || { echo "${MSG_CANCELLED}"; exit 1; }
 
-if [ -z "${SEL}" ]; then
-  echo "${MSG_NO_SELECTION}"
-  exit 1
-fi
+case "$SEL_NUM" in
+  1) SEL="6.12.73+deb13-amd64" ;;
+  2) SEL="6.16.12+deb13-amd64" ;;
+  3) SEL="6.17.8+deb13-amd64" ;;
+  4) SEL="6.18.5+deb13-amd64" ;;
+  *) echo "${MSG_CANCELLED}"; exit 1 ;;
+esac
 
-# confirm
-if ! whiptail --title "Confirm / Onay" --yesno "${MSG_CONFIRM}\n\n${SEL}\n\n${MSG_ADDING}\n${SOURCES}" 12 70; then
+# Explicit danger confirmation
+if ! whiptail --title "DANGER / DİKKAT" --yesno "${MSG_CONFIRM_RISK}\n\nKernel: ${SEL}\n\n(Recommended: run in VM only)" 14 72; then
   echo "${MSG_CANCELLED}"
   exit 0
 fi
 
-# backup
-echo "${MSG_ADDING}"
-${SUDO} cp -a "${SOURCES}" "${BACKUP}"
-echo "${MSG_BACKUP_SAVED} ${BACKUP}"
-
-# add repo line if not present
-if ! grep -Fxq "${DEB_LINE}" "${SOURCES}"; then
-  printf '%s\n' "${DEB_LINE}" | ${SUDO} tee -a "${SOURCES}" >/dev/null
-  ADDED_LINE=1
-  echo "${MSG_REPO_ADDED}"
-else
-  echo "${MSG_REPO_ALREADY}"
-fi
-
-# ensure cleanup removes the line we added
-cleanup() {
+# Trap to restore original sources.list on exit/error
+restore_sources_on_exit() {
   local rc=$?
-  if [ "${ADDED_LINE}" -eq 1 ]; then
-    echo "${MSG_REMOVING}"
-    # remove exact line(s) we added (use | as sed delimiter)
-    ${SUDO} sed -i.bak -e "\|^${DEB_LINE}$|d" "${SOURCES}" || true
-    echo "${MSG_REMOVING} ${SOURCES}"
-    # refresh apt (best-effort)
+  if [ -f "${BACKUP}" ]; then
+    echo -e "\n${MSG_RESTORE}"
+    ${SUDO} rm -f "${SOURCES}" || true
+    ${SUDO} mv -f "${BACKUP}" "${SOURCES}" || true
     ${SUDO} apt-get update >/dev/null 2>&1 || true
   fi
   exit $rc
 }
-trap cleanup EXIT
+trap restore_sources_on_exit EXIT
 
-# apt update
+# Backup original sources.list
+echo "${MSG_BACKUP_SAVE} ${BACKUP}"
+${SUDO} cp -a "${SOURCES}" "${BACKUP}"
+
+# Write temporary Debian sources to a temp file (safest) then atomically replace
+echo "${MSG_WRITING_SOURCES}"
+printf '%s\n' "${DEB_SOURCES_CONTENT}" > "${TMP_SOURCES}"
+${SUDO} mv -f "${TMP_SOURCES}" "${SOURCES}"
+${SUDO} chmod 644 "${SOURCES}"
+
+# Update apt using the new Debian sources
 echo "${MSG_UPDATING}"
 ${SUDO} apt-get update
 
-# install image and headers (best-effort)
+# Build package names
 PKG_IMAGE="linux-image-${SEL}"
 PKG_HEADERS="linux-headers-${SEL}"
 
+# Try to install kernel image
 echo "${MSG_INSTALL_KERNEL} ${PKG_IMAGE}"
-if ! ${SUDO} apt-get install -y "${PKG_IMAGE}"; then
+if ! ${SUDO} apt-get install -y --no-install-recommends "${PKG_IMAGE}"; then
   echo "${MSG_INSTALL_WARN} ${PKG_IMAGE}"
 fi
 
-echo "-> ${MSG_INSTALL_KERNEL} ${PKG_HEADERS}"
-if ! ${SUDO} apt-get install -y "${PKG_HEADERS}"; then
-  echo "${MSG_HEADERS_MISSING}"
+# Try to install headers
+echo "${MSG_HEADERS} ${PKG_HEADERS}"
+if ! ${SUDO} apt-get install -y --no-install-recommends "${PKG_HEADERS}"; then
+  echo "${MSG_INSTALL_WARN} ${PKG_HEADERS}"
 fi
 
 # update grub
@@ -144,20 +155,19 @@ elif command -v update-grub2 >/dev/null 2>&1; then
   ${SUDO} update-grub2
 elif command -v grub-mkconfig >/dev/null 2>&1; then
   ${SUDO} grub-mkconfig -o /boot/grub/grub.cfg
-elif command -v grub2-mkconfig >/dev/null 2>&1; then
-  ${SUDO} grub2-mkconfig -o /boot/grub/grub.cfg
 else
   echo "${MSG_GRUB_NOT_FOUND}"
 fi
 
-# proactively remove repo if we added it (trap will be a safety net too)
-if [ "${ADDED_LINE}" -eq 1 ]; then
-  echo "${MSG_REMOVING}"
-  ${SUDO} sed -i.bak -e "\|^${DEB_LINE}$|d" "${SOURCES}" || true
-  ADDED_LINE=0
-  ${SUDO} apt-get update || true
-  echo "${MSG_DONE}"
-fi
+# restore original sources.list (trap will also restore if script fails earlier)
+echo "${MSG_RESTORE}"
+${SUDO} rm -f "${SOURCES}" || true
+${SUDO} mv -f "${BACKUP}" "${SOURCES}" || true
+${SUDO} apt-get update || true
 
-whiptail --title "Pardus Kernel Swap" --msgbox "${MSG_DONE}\n\n${SEL}" 10 60
+# success message
+whiptail --title "Pardus Kernel Swap (OVERRIDE MODE)" --msgbox "${MSG_DONE}\n\nSelected kernel: ${SEL}" 10 60
+
+# clear trap and exit success
+trap - EXIT
 exit 0
