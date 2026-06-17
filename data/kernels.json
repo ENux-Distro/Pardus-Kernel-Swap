@@ -1,0 +1,38 @@
+{
+  "comment": "Catalog of predefined Pardus kernels offered by Pardus Kernel Swap.",
+  "updated": "2026-06-17",
+  "kernels": [
+    {
+      "id": "cutting-edge",
+      "label": "Cutting-Edge",
+      "version": "7.1.0+pardus25-amd64",
+      "summary": "Newest kernel available.",
+      "advantages": ["latest features", "latest hardware support"],
+      "disadvantages": ["higher risk of regressions"]
+    },
+    {
+      "id": "stable",
+      "label": "Stable",
+      "version": "7.0.12+pardus25-amd64",
+      "summary": "Recommended for most users.",
+      "advantages": ["tested", "balanced"],
+      "disadvantages": ["slightly older features"]
+    },
+    {
+      "id": "lts",
+      "label": "LTS",
+      "version": "6.18.35+pardus25-amd64",
+      "summary": "Long-term support kernel.",
+      "advantages": ["stability", "long support cycle"],
+      "disadvantages": ["fewer new features"]
+    },
+    {
+      "id": "old-lts",
+      "label": "Old-LTS",
+      "version": "6.12.93+pardus25-amd64",
+      "summary": "Older long-term support release.",
+      "advantages": ["maximum compatibility"],
+      "disadvantages": ["oldest feature set"]
+    }
+  ]
+}

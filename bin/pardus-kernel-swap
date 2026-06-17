@@ -1,0 +1,287 @@
+#!/usr/bin/env bash
+#
+# pardus-kernel-swap - Classic-style TUI for inspecting and swapping Pardus
+# kernels. See README.md for the full description.
+#
+# Copyright (C) 2026  ENux-Distro / Pardus Kernel Swap
+# License: GPL-2.0
+#
+set -uo pipefail
+
+# ----------------------------------------------------------------------------
+# Locate the project root and load modules.
+# ----------------------------------------------------------------------------
+# Resolve symlinks so the tool works when installed as /usr/bin/... -> repo.
+SELF="${BASH_SOURCE[0]}"
+while [ -h "$SELF" ]; do
+    dir="$(cd -P "$(dirname "$SELF")" && pwd)"
+    SELF="$(readlink "$SELF")"
+    [[ "$SELF" != /* ]] && SELF="$dir/$SELF"
+done
+PKS_ROOT="$(cd -P "$(dirname "$SELF")/.." && pwd)"
+export PKS_ROOT
+
+# shellcheck source=lib/common.sh
+source "$PKS_ROOT/lib/common.sh"
+# shellcheck source=lib/log.sh
+source "$PKS_ROOT/lib/log.sh"
+# shellcheck source=lib/ui.sh
+source "$PKS_ROOT/lib/ui.sh"
+# shellcheck source=lib/kernel.sh
+source "$PKS_ROOT/lib/kernel.sh"
+# shellcheck source=lib/cve.sh
+source "$PKS_ROOT/lib/cve.sh"
+# shellcheck source=lib/download.sh
+source "$PKS_ROOT/lib/download.sh"
+# shellcheck source=lib/install.sh
+source "$PKS_ROOT/lib/install.sh"
+# shellcheck source=lib/build.sh
+source "$PKS_ROOT/lib/build.sh"
+
+# ----------------------------------------------------------------------------
+# Startup checks
+# ----------------------------------------------------------------------------
+require_root
+need_cmd whiptail jq dpkg uname
+log_init
+log_event "Startup" "$PKS_NAME $PKS_VERSION"
+
+# ----------------------------------------------------------------------------
+# Reboot reminder, shown once at exit if anything was installed.
+# ----------------------------------------------------------------------------
+PKS_NEED_REBOOT=0
+
+finish() {
+    if [ "$PKS_NEED_REBOOT" -eq 1 ]; then
+        ui_msg "A new kernel was installed.
+
+A reboot is required for it to take effect.
+
+This tool will NOT reboot for you. Reboot manually when ready:
+
+    sudo reboot" 16
+    fi
+    log_event "Exit"
+    clear 2>/dev/null || true
+}
+trap finish EXIT
+
+# ----------------------------------------------------------------------------
+# Screen 1: current kernel + security status
+# ----------------------------------------------------------------------------
+show_status_screen() {
+    local current report rc status
+    current="$(kernel_current)"
+    log_event "Detected kernel" "$current"
+
+    report="$(cve_report "$current")"
+    rc=$?
+
+    if [ "$rc" -eq 0 ]; then
+        status="Known CVEs detected"
+        log_event "CVE check" "vulnerabilities found for $current"
+        ui_msg "Current Kernel:
+$current
+
+Security Status:
+$status
+
+$report
+Recommendation:
+Upgrade to a newer supported kernel." 20
+    elif [ "$rc" -eq 1 ]; then
+        status="No known CVEs detected"
+        log_event "CVE check" "clean for $current"
+        ui_msg "Current Kernel:
+$current
+
+Security Status:
+$status" 14
+    else
+        log_warn "CVE check could not be completed"
+        ui_msg "Current Kernel:
+$current
+
+Security Status:
+Unknown - CVE database unavailable." 14
+    fi
+}
+
+# ----------------------------------------------------------------------------
+# Predefined kernel install flow
+# ----------------------------------------------------------------------------
+install_predefined() {
+    local id="$1"
+    local version
+    version="$(kernel_catalog_version "$id")"
+    [ -n "$version" ] || { ui_msg "Internal error: unknown kernel id '$id'."; return; }
+
+    # Description + advantages/disadvantages.
+    ui_msg "$(kernel_catalog_description "$id")" "$PKS_DLG_HEIGHT"
+
+    # Confirmation with current vs new.
+    if ! ui_yesno "Kernel: $(kernel_catalog_field "$id" label)
+
+Current Kernel: $(kernel_current)
+New Kernel:     $version
+
+This operation will modify the system.
+
+Continue?"; then
+        log_event "Installation cancelled" "$version"
+        ui_msg "Installation cancelled. No changes were made." 10
+        return
+    fi
+
+    ensure_work_dir
+    local url dest
+    url="$(dl_url_for_kernel "$version")"
+    dest="$PKS_WORK_DIR/$version$PKS_PACKAGE_SUFFIX"
+
+    # Download with a progress gauge.
+    ui_gauge_cmd "Downloading $version ..." dl_fetch_gauge "$url" "$dest"
+
+    if [ ! -s "$dest" ]; then
+        ui_msg "Download failed.
+
+URL:
+$url
+
+The kernel was not installed. Check your network connection and try again." 16
+        return
+    fi
+
+    # Install (capture output for display on failure).
+    local out
+    if out="$(install_deb "$dest" 2>&1)"; then
+        bootloader_update >/dev/null 2>&1
+        PKS_NEED_REBOOT=1
+        ui_msg "Kernel installed successfully:
+
+$version
+
+A reboot is required (you will be reminded on exit)." 14
+    else
+        printf '%s\n' "$out" >"$PKS_WORK_DIR/install.log"
+        ui_textbox_file "$PKS_NAME - Installation Failed" "$PKS_WORK_DIR/install.log"
+        ui_msg "Installation failed. The system was not modified by a successful install.
+Review the log above and at $PKS_LOG_FILE." 12
+    fi
+}
+
+# ----------------------------------------------------------------------------
+# Custom kernel build flow
+# ----------------------------------------------------------------------------
+install_custom() {
+    ui_msg "$(kernel_catalog_description custom)" 18
+
+    local url
+    url="$(ui_input "Enter kernel source archive URL:" \
+        "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.1.tar.xz")" || {
+        log_event "Custom build cancelled" "at URL prompt"
+        return
+    }
+    [ -n "$url" ] || { ui_msg "No URL provided. Cancelled." 10; return; }
+
+    need_cmd make gcc tar
+    if ! ui_yesno "Custom Kernel Build
+
+Source: $url
+Current Kernel: $(kernel_current)
+
+This will download, configure and compile a kernel using:
+  make bindeb-pkg LOCALVERSION=\"$PKS_BUILD_LOCALVERSION\"
+
+Compilation can take a long time. Continue?" "Build" "Cancel" 18; then
+        log_event "Custom build cancelled" "$url"
+        return
+    fi
+
+    ui_msg "The build is starting and will run in this terminal.
+
+Build output is written to:
+$(build_log_path)
+
+Press OK to begin. This may take a while." 14
+
+    clear
+    echo "=== $PKS_NAME: building custom kernel ==="
+    echo "Source: $url"
+    echo "Log:    $(build_log_path)"
+    echo
+
+    local debdir
+    if ! debdir="$(build_custom "$url")"; then
+        ui_textbox_file "$PKS_NAME - Build Failed" "$(build_log_path)"
+        ui_msg "Custom kernel build failed.
+
+Full log: $(build_log_path)
+No packages were installed." 12
+        return
+    fi
+
+    local debs
+    debs="$(build_list_debs "$debdir")"
+    if ! ui_yesno "Build succeeded. The following packages were produced:
+
+$debs
+
+Current Kernel: $(kernel_current)
+
+Install them now?" "Install" "Cancel" 18; then
+        log_event "Custom install cancelled" "$debdir"
+        ui_msg "Packages built but not installed.
+They remain in: $debdir" 10
+        return
+    fi
+
+    local out ok=1
+    local f
+    for f in $debs; do
+        if out="$(install_deb "$f" 2>&1)"; then
+            continue
+        fi
+        ok=0
+        printf '%s\n' "$out" >"$PKS_WORK_DIR/install.log"
+        ui_textbox_file "$PKS_NAME - Installation Failed" "$PKS_WORK_DIR/install.log"
+        break
+    done
+
+    if [ "$ok" -eq 1 ]; then
+        bootloader_update >/dev/null 2>&1
+        PKS_NEED_REBOOT=1
+        ui_msg "Custom kernel installed successfully.
+
+A reboot is required (you will be reminded on exit)." 12
+    else
+        ui_msg "Custom kernel installation failed.
+Review $PKS_LOG_FILE for details." 10
+    fi
+}
+
+# ----------------------------------------------------------------------------
+# Main menu loop
+# ----------------------------------------------------------------------------
+main_menu() {
+    local choice
+    while true; do
+        mapfile -t menu_args < <(kernel_catalog_menu_args)
+        choice="$(ui_menu "Select a kernel to install, or Quit." "${menu_args[@]}")" || {
+            # User chose Quit.
+            return
+        }
+        log_event "User selected" "$choice"
+        case "$choice" in
+            custom) install_custom ;;
+            "")     : ;;
+            *)      install_predefined "$choice" ;;
+        esac
+    done
+}
+
+# ----------------------------------------------------------------------------
+# Run
+# ----------------------------------------------------------------------------
+show_status_screen
+main_menu
+exit 0
