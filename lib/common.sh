@@ -39,8 +39,14 @@ PKS_WORK_DIR="${PKS_WORK_DIR:-/var/tmp/pardus-kernel-swap}"
 # Base URL for predefined kernel packages. The kernel version is appended.
 PKS_RELEASE_BASE_URL="https://github.com/ENux-Distro/Pardus-Kernel-Swap/releases/download/Kernels"
 
-# Predefined kernel assets are published as "<version>.deb".
+# Predefined kernel assets are published as one image package and one headers
+# package per version, named:
+#   linux-image-<version>.deb
+#   linux-headers-<version>.deb
+# e.g. linux-image-7.0.12+pardus25-amd64.deb
 PKS_PACKAGE_SUFFIX=".deb"
+PKS_IMAGE_PREFIX="linux-image-"
+PKS_HEADERS_PREFIX="linux-headers-"
 
 # Whiptail dialog dimensions (classic 80x24-friendly sizing).
 PKS_DLG_HEIGHT=20

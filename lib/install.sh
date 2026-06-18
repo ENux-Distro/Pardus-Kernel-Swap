@@ -8,23 +8,31 @@
 [ -n "${PKS_INSTALL_SOURCED:-}" ] && return 0
 PKS_INSTALL_SOURCED=1
 
-# install_deb FILE - install a .deb, resolving dependencies. Echoes errors to
-# stdout (captured by the caller for display) and returns non-zero on failure.
+# install_deb FILE... - install one or more .deb files together, resolving
+# dependencies. Passing the image and headers in a single call lets apt sort
+# out inter-package and external dependencies in one transaction regardless of
+# order. Echoes errors to stdout (captured by the caller for display) and
+# returns non-zero on failure.
 install_deb() {
-    local file="$1"
-    [ -r "$file" ] || { echo "Package not readable: $file"; return 1; }
+    local files=("$@")
+    [ "${#files[@]}" -gt 0 ] || { echo "No packages to install"; return 1; }
 
-    log_event "Installing package" "$file"
+    local f
+    for f in "${files[@]}"; do
+        [ -r "$f" ] || { echo "Package not readable: $f"; return 1; }
+    done
+
+    log_event "Installing packages" "${files[*]}"
     # Prefer apt for dependency resolution; fall back to dpkg + apt-fix.
     if command -v apt-get >/dev/null 2>&1; then
-        if apt-get install -y --no-install-recommends "$file" 2>&1; then
-            log_event "Kernel installed successfully" "$file"
+        if apt-get install -y --no-install-recommends "${files[@]}" 2>&1; then
+            log_event "Kernel installed successfully" "${files[*]}"
             return 0
         fi
     fi
 
-    if dpkg -i "$file" 2>&1; then
-        log_event "Kernel installed successfully" "$file"
+    if dpkg -i "${files[@]}" 2>&1; then
+        log_event "Kernel installed successfully" "${files[*]}"
         return 0
     fi
 
@@ -32,12 +40,12 @@ install_deb() {
     if command -v apt-get >/dev/null 2>&1; then
         echo "Resolving dependencies..."
         if apt-get install -y -f 2>&1; then
-            log_event "Kernel installed successfully (after dep fix)" "$file"
+            log_event "Kernel installed successfully (after dep fix)" "${files[*]}"
             return 0
         fi
     fi
 
-    log_error "Package installation failed: $file"
+    log_error "Package installation failed: ${files[*]}"
     return 1
 }
 

@@ -8,10 +8,14 @@
 [ -n "${PKS_DOWNLOAD_SOURCED:-}" ] && return 0
 PKS_DOWNLOAD_SOURCED=1
 
-# dl_url_for_kernel VERSION - compose the release download URL for a
-# predefined kernel version.
-dl_url_for_kernel() {
-    printf '%s/%s%s' "$PKS_RELEASE_BASE_URL" "$1" "$PKS_PACKAGE_SUFFIX"
+# dl_url_for_image VERSION - release URL for the linux-image package.
+dl_url_for_image() {
+    printf '%s/%s%s%s' "$PKS_RELEASE_BASE_URL" "$PKS_IMAGE_PREFIX" "$1" "$PKS_PACKAGE_SUFFIX"
+}
+
+# dl_url_for_headers VERSION - release URL for the linux-headers package.
+dl_url_for_headers() {
+    printf '%s/%s%s%s' "$PKS_RELEASE_BASE_URL" "$PKS_HEADERS_PREFIX" "$1" "$PKS_PACKAGE_SUFFIX"
 }
 
 # _dl_have - pick an available downloader; echoes "curl" or "wget".

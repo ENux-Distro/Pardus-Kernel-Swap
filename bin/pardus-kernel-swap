@@ -134,26 +134,39 @@ Continue?"; then
     fi
 
     ensure_work_dir
-    local url dest
-    url="$(dl_url_for_kernel "$version")"
-    dest="$PKS_WORK_DIR/$version$PKS_PACKAGE_SUFFIX"
+    local img_url hdr_url img_dest hdr_dest
+    img_url="$(dl_url_for_image "$version")"
+    hdr_url="$(dl_url_for_headers "$version")"
+    img_dest="$PKS_WORK_DIR/${PKS_IMAGE_PREFIX}${version}${PKS_PACKAGE_SUFFIX}"
+    hdr_dest="$PKS_WORK_DIR/${PKS_HEADERS_PREFIX}${version}${PKS_PACKAGE_SUFFIX}"
 
-    # Download with a progress gauge.
-    ui_gauge_cmd "Downloading $version ..." dl_fetch_gauge "$url" "$dest"
-
-    if [ ! -s "$dest" ]; then
+    # Download image and headers, each with its own progress gauge.
+    ui_gauge_cmd "Downloading image: $version ..." dl_fetch_gauge "$img_url" "$img_dest"
+    if [ ! -s "$img_dest" ]; then
         ui_msg "Download failed.
 
 URL:
-$url
+$img_url
 
 The kernel was not installed. Check your network connection and try again." 16
         return
     fi
 
-    # Install (capture output for display on failure).
+    ui_gauge_cmd "Downloading headers: $version ..." dl_fetch_gauge "$hdr_url" "$hdr_dest"
+    if [ ! -s "$hdr_dest" ]; then
+        ui_msg "Header package download failed.
+
+URL:
+$hdr_url
+
+The kernel image was downloaded but headers are missing. Headers are needed for
+DKMS and out-of-tree modules. Nothing was installed. Try again." 16
+        return
+    fi
+
+    # Install image + headers together so apt resolves both at once.
     local out
-    if out="$(install_deb "$dest" 2>&1)"; then
+    if out="$(install_deb "$img_dest" "$hdr_dest" 2>&1)"; then
         bootloader_update >/dev/null 2>&1
         PKS_NEED_REBOOT=1
         ui_msg "Kernel installed successfully:
@@ -235,17 +248,17 @@ They remain in: $debdir" 10
         return
     fi
 
+    # Install all built packages (image + headers) in one transaction.
     local out ok=1
-    local f
-    for f in $debs; do
-        if out="$(install_deb "$f" 2>&1)"; then
-            continue
-        fi
+    local deb_array
+    mapfile -t deb_array < <(build_list_debs "$debdir")
+    if out="$(install_deb "${deb_array[@]}" 2>&1)"; then
+        ok=1
+    else
         ok=0
         printf '%s\n' "$out" >"$PKS_WORK_DIR/install.log"
         ui_textbox_file "$PKS_NAME - Installation Failed" "$PKS_WORK_DIR/install.log"
-        break
-    done
+    fi
 
     if [ "$ok" -eq 1 ]; then
         bootloader_update >/dev/null 2>&1
