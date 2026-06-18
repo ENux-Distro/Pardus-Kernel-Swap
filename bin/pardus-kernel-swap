@@ -50,6 +50,7 @@ log_event "Startup" "$PKS_NAME $PKS_VERSION"
 # Reboot reminder, shown once at exit if anything was installed.
 # ----------------------------------------------------------------------------
 PKS_NEED_REBOOT=0
+PKS_DID_INSTALL=0
 
 finish() {
     if [ "$PKS_NEED_REBOOT" -eq 1 ]; then
@@ -105,6 +106,19 @@ $current
 Security Status:
 Unknown - CVE database unavailable." 14
     fi
+}
+
+# run_install_live FILE... - install packages with their output shown live on a
+# clean terminal (so the user sees real progress instead of a frozen screen),
+# while also capturing it to install.log for display if something fails.
+# Returns the installer's exit status.
+run_install_live() {
+    local log="$PKS_WORK_DIR/install.log"
+    clear
+    echo "=== $PKS_NAME: installing kernel ==="
+    echo
+    install_deb "$@" 2>&1 | tee "$log"
+    return "${PIPESTATUS[0]}"
 }
 
 # ----------------------------------------------------------------------------
@@ -164,18 +178,18 @@ DKMS and out-of-tree modules. Nothing was installed. Try again." 16
         return
     fi
 
-    # Install image + headers together so apt resolves both at once.
-    local out
-    if out="$(install_deb "$img_dest" "$hdr_dest" 2>&1)"; then
+    # Install image + headers together so apt resolves both at once, showing
+    # live output on the terminal.
+    if run_install_live "$img_dest" "$hdr_dest"; then
         bootloader_update >/dev/null 2>&1
         PKS_NEED_REBOOT=1
+        PKS_DID_INSTALL=1
         ui_msg "Kernel installed successfully:
 
 $version
 
 A reboot is required (you will be reminded on exit)." 14
     else
-        printf '%s\n' "$out" >"$PKS_WORK_DIR/install.log"
         ui_textbox_file "$PKS_NAME - Installation Failed" "$PKS_WORK_DIR/install.log"
         ui_msg "Installation failed. The system was not modified by a successful install.
 Review the log above and at $PKS_LOG_FILE." 12
@@ -248,25 +262,19 @@ They remain in: $debdir" 10
         return
     fi
 
-    # Install all built packages (image + headers) in one transaction.
-    local out ok=1
+    # Install all built packages (image + headers) in one transaction, with
+    # live output on the terminal.
     local deb_array
     mapfile -t deb_array < <(build_list_debs "$debdir")
-    if out="$(install_deb "${deb_array[@]}" 2>&1)"; then
-        ok=1
-    else
-        ok=0
-        printf '%s\n' "$out" >"$PKS_WORK_DIR/install.log"
-        ui_textbox_file "$PKS_NAME - Installation Failed" "$PKS_WORK_DIR/install.log"
-    fi
-
-    if [ "$ok" -eq 1 ]; then
+    if run_install_live "${deb_array[@]}"; then
         bootloader_update >/dev/null 2>&1
         PKS_NEED_REBOOT=1
+        PKS_DID_INSTALL=1
         ui_msg "Custom kernel installed successfully.
 
 A reboot is required (you will be reminded on exit)." 12
     else
+        ui_textbox_file "$PKS_NAME - Installation Failed" "$PKS_WORK_DIR/install.log"
         ui_msg "Custom kernel installation failed.
 Review $PKS_LOG_FILE for details." 10
     fi
@@ -284,11 +292,24 @@ main_menu() {
             return
         }
         log_event "User selected" "$choice"
+
+        PKS_DID_INSTALL=0
         case "$choice" in
             custom) install_custom ;;
             "")     : ;;
             *)      install_predefined "$choice" ;;
         esac
+
+        # After a successful install, let the user return to the menu or exit
+        # rather than dropping straight back into it.
+        if [ "$PKS_DID_INSTALL" -eq 1 ]; then
+            if ui_yesno "The kernel was installed successfully.
+
+What would you like to do?" "Return to Menu" "Exit" 12; then
+                continue
+            fi
+            return
+        fi
     done
 }
 
