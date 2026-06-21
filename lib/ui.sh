@@ -21,8 +21,8 @@ ui_msg() {
 # cancel. Defaults match an install/cancel decision.
 ui_yesno() {
     local text="$1"
-    local yes="${2:-Install}"
-    local no="${3:-Cancel}"
+    local yes="${2:-$(t btn_install)}"
+    local no="${3:-$(t btn_cancel)}"
     local height="${4:-16}"
     whiptail --title "$(_ui_title)" \
         --yes-button "$yes" --no-button "$no" \
@@ -45,7 +45,7 @@ ui_menu() {
     shift
     local count=$(( $# / 2 ))
     whiptail --title "$(_ui_title)" \
-        --ok-button "Select" --cancel-button "Quit" \
+        --ok-button "$(t btn_select)" --cancel-button "$(t btn_quit)" \
         --menu "$text" "$PKS_DLG_HEIGHT" "$PKS_DLG_WIDTH" "$count" \
         "$@" 3>&1 1>&2 2>&3
 }

@@ -1,5 +1,5 @@
 {
-  "comment": "Catalog of predefined Pardus kernels offered by Pardus Kernel Swap.",
+  "comment": "Catalog of predefined Pardus kernels offered by Pardus Kernel Swap. *_tr fields hold Turkish translations; the app falls back to the base field when a translation is missing.",
   "updated": "2026-06-17",
   "kernels": [
     {
@@ -7,32 +7,44 @@
       "label": "Cutting-Edge",
       "version": "7.1.0+pardus25-amd64",
       "summary": "Newest kernel available.",
+      "summary_tr": "Mevcut en yeni çekirdek.",
       "advantages": ["latest features", "latest hardware support"],
-      "disadvantages": ["higher risk of regressions"]
+      "advantages_tr": ["en yeni özellikler", "en yeni donanım desteği"],
+      "disadvantages": ["higher risk of regressions"],
+      "disadvantages_tr": ["gerileme (regresyon) riski daha yüksek"]
     },
     {
       "id": "stable",
       "label": "Stable",
       "version": "7.0.12+pardus25-amd64",
       "summary": "Recommended for most users.",
+      "summary_tr": "Çoğu kullanıcı için önerilir.",
       "advantages": ["tested", "balanced"],
-      "disadvantages": ["slightly older features"]
+      "advantages_tr": ["test edilmiş", "dengeli"],
+      "disadvantages": ["slightly older features"],
+      "disadvantages_tr": ["biraz daha eski özellikler"]
     },
     {
       "id": "lts",
       "label": "LTS",
       "version": "6.18.35+pardus25-amd64",
       "summary": "Long-term support kernel.",
+      "summary_tr": "Uzun süreli destekli çekirdek.",
       "advantages": ["stability", "long support cycle"],
-      "disadvantages": ["fewer new features"]
+      "advantages_tr": ["kararlılık", "uzun destek döngüsü"],
+      "disadvantages": ["fewer new features"],
+      "disadvantages_tr": ["daha az yeni özellik"]
     },
     {
       "id": "old-lts",
       "label": "Old-LTS",
       "version": "6.12.93+pardus25-amd64",
       "summary": "Older long-term support release.",
+      "summary_tr": "Daha eski uzun süreli destek sürümü.",
       "advantages": ["maximum compatibility"],
-      "disadvantages": ["oldest feature set"]
+      "advantages_tr": ["en yüksek uyumluluk"],
+      "disadvantages": ["oldest feature set"],
+      "disadvantages_tr": ["en eski özellik kümesi"]
     }
   ]
 }

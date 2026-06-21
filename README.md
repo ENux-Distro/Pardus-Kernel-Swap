@@ -63,6 +63,24 @@ sudo ./install.sh        # symlinks bin/pardus-kernel-swap into /usr/local/sbin
 sudo pardus-kernel-swap
 ```
 
+## Localization
+
+The interface is bilingual: **Turkish** and **English**. The language is chosen
+automatically from the active locale — if `LC_ALL`/`LC_MESSAGES`/`LANG` starts
+with `tr` the UI is Turkish, otherwise English. English is the fallback for any
+string lacking a translation, so the app is never left blank.
+
+Force a language regardless of locale:
+
+```bash
+sudo PKS_LANG_OVERRIDE=tr ./bin/pardus-kernel-swap
+sudo PKS_LANG_OVERRIDE=en ./bin/pardus-kernel-swap
+```
+
+UI strings live in `lib/i18n.sh` (keyed `printf` formats). Translatable data —
+kernel summaries, CVE descriptions and recommendations — carry optional `*_tr`
+fields in `data/kernels.json` and `data/cve.json`.
+
 ## Project layout
 
 ```

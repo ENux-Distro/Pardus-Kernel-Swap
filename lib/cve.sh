@@ -60,7 +60,10 @@ cve_check() {
         fi
         printf '%s\t%s\t%s\t%s\n' "$id" "$sev" "$desc" "$rec"
         found=0
-    done < <(jq -r '.cves[] | [.id, .severity, .introduced, (.fixed // "null"), .description, .recommendation] | @tsv' "$PKS_CVE_DB")
+    done < <(jq -r --arg sfx "$([ "${PKS_LANG:-en}" = tr ] && echo _tr)" \
+        '.cves[] | [.id, .severity, .introduced, (.fixed // "null"),
+                    (.["description"+$sfx] // .description),
+                    (.["recommendation"+$sfx] // .recommendation)] | @tsv' "$PKS_CVE_DB")
 
     return $found
 }
@@ -76,17 +79,18 @@ cve_report() {
     rc=$?
 
     if [ "$rc" -eq 2 ]; then
-        printf 'CVE database unavailable - security status unknown.\n'
+        printf '%s\n' "$(t cve_db_unavail)"
         return 2
     fi
     if [ "$rc" -eq 1 ]; then
-        printf 'No known CVEs detected.\n'
+        printf '%s\n' "$(t cve_clean)"
         return 1
     fi
 
-    local id sev desc rec
+    local id sev desc rec rec_label
+    rec_label="$(t cve_recommend_label)"
     while IFS=$'\t' read -r id sev desc rec; do
-        printf '%s  [%s]\n  %s\n  Recommendation: %s\n\n' "$id" "$sev" "$desc" "$rec"
+        printf '%s  [%s]\n  %s\n  %s: %s\n\n' "$id" "$sev" "$desc" "$rec_label" "$rec"
     done <<<"$out"
     return 0
 }

@@ -1,5 +1,5 @@
 {
-  "comment": "Local CVE database for Pardus Kernel Swap. A kernel base version V is considered affected by an entry when: introduced <= V < fixed (version comparison via dpkg --compare-versions). Set 'fixed' to null for an unpatched issue (affected for every V >= introduced).",
+  "comment": "Local CVE database for Pardus Kernel Swap. A kernel base version V is considered affected by an entry when: introduced <= V < fixed (version comparison via dpkg --compare-versions). Set 'fixed' to null for an unpatched issue (affected for every V >= introduced). *_tr fields hold Turkish text; the app falls back to the base field when a translation is missing.",
   "schema_version": 1,
   "updated": "2026-06-17",
   "source": "local",
@@ -10,7 +10,9 @@
       "introduced": "6.12.0",
       "fixed": "6.12.80",
       "description": "Use-after-free in the netfilter nf_tables subsystem allowing local privilege escalation.",
-      "recommendation": "Upgrade to a 6.12 LTS kernel >= 6.12.80, or move to a newer supported branch."
+      "description_tr": "netfilter nf_tables alt sisteminde yerel yetki yükseltmeye olanak tanıyan kullanım sonrası serbest bırakma (use-after-free) hatası.",
+      "recommendation": "Upgrade to a 6.12 LTS kernel >= 6.12.80, or move to a newer supported branch.",
+      "recommendation_tr": "6.12.80 veya üzeri bir 6.12 LTS çekirdeğine yükseltin ya da desteklenen daha yeni bir dala geçin."
     },
     {
       "id": "CVE-2025-38104",
@@ -18,7 +20,9 @@
       "introduced": "6.0.0",
       "fixed": "6.18.10",
       "description": "Out-of-bounds write in the KSMBD server reachable from authenticated SMB sessions.",
-      "recommendation": "Upgrade to a kernel >= 6.18.10 or disable the in-kernel SMB server."
+      "description_tr": "Kimliği doğrulanmış SMB oturumlarından erişilebilen KSMBD sunucusunda sınır dışı yazma hatası.",
+      "recommendation": "Upgrade to a kernel >= 6.18.10 or disable the in-kernel SMB server.",
+      "recommendation_tr": "6.18.10 veya üzeri bir çekirdeğe yükseltin ya da çekirdek içi SMB sunucusunu devre dışı bırakın."
     },
     {
       "id": "CVE-2025-38220",
@@ -26,7 +30,9 @@
       "introduced": "7.0.0",
       "fixed": "7.0.11",
       "description": "Race condition in the io_uring completion path leading to a NULL pointer dereference and local DoS.",
-      "recommendation": "Upgrade to the Stable 7.0.12 kernel or newer."
+      "description_tr": "io_uring tamamlanma yolundaki, NULL işaretçi başvurusuna ve yerel hizmet reddine (DoS) yol açan yarış durumu.",
+      "recommendation": "Upgrade to the Stable 7.0.12 kernel or newer.",
+      "recommendation_tr": "Kararlı (Stable) 7.0.12 çekirdeğine veya daha yenisine yükseltin."
     },
     {
       "id": "CVE-2026-10044",
@@ -34,7 +40,9 @@
       "introduced": "6.12.0",
       "fixed": "6.12.90",
       "description": "Integer overflow in the AMDGPU display code reachable from an unprivileged DRM ioctl.",
-      "recommendation": "Upgrade to a 6.12 LTS kernel >= 6.12.90."
+      "description_tr": "Yetkisiz bir DRM ioctl çağrısından erişilebilen AMDGPU görüntü kodunda tamsayı taşması.",
+      "recommendation": "Upgrade to a 6.12 LTS kernel >= 6.12.90.",
+      "recommendation_tr": "6.12.90 veya üzeri bir 6.12 LTS çekirdeğine yükseltin."
     }
   ]
 }

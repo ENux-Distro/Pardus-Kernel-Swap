@@ -25,6 +25,8 @@ export PKS_ROOT
 source "$PKS_ROOT/lib/common.sh"
 # shellcheck source=lib/log.sh
 source "$PKS_ROOT/lib/log.sh"
+# shellcheck source=lib/i18n.sh
+source "$PKS_ROOT/lib/i18n.sh"
 # shellcheck source=lib/ui.sh
 source "$PKS_ROOT/lib/ui.sh"
 # shellcheck source=lib/kernel.sh
@@ -44,7 +46,8 @@ source "$PKS_ROOT/lib/build.sh"
 require_root
 need_cmd whiptail jq dpkg uname
 log_init
-log_event "Startup" "$PKS_NAME $PKS_VERSION"
+i18n_init
+log_event "Startup" "$PKS_NAME $PKS_VERSION (lang=$PKS_LANG)"
 
 # ----------------------------------------------------------------------------
 # Reboot reminder, shown once at exit if anything was installed.
@@ -54,13 +57,7 @@ PKS_DID_INSTALL=0
 
 finish() {
     if [ "$PKS_NEED_REBOOT" -eq 1 ]; then
-        ui_msg "A new kernel was installed.
-
-A reboot is required for it to take effect.
-
-This tool will NOT reboot for you. Reboot manually when ready:
-
-    sudo reboot" 16
+        ui_msg "$(t reboot_reminder)" 16
     fi
     log_event "Exit"
     clear 2>/dev/null || true
@@ -71,7 +68,7 @@ trap finish EXIT
 # Screen 1: current kernel + security status
 # ----------------------------------------------------------------------------
 show_status_screen() {
-    local current report rc status
+    local current report rc
     current="$(kernel_current)"
     log_event "Detected kernel" "$current"
 
@@ -79,32 +76,14 @@ show_status_screen() {
     rc=$?
 
     if [ "$rc" -eq 0 ]; then
-        status="Known CVEs detected"
         log_event "CVE check" "vulnerabilities found for $current"
-        ui_msg "Current Kernel:
-$current
-
-Security Status:
-$status
-
-$report
-Recommendation:
-Upgrade to a newer supported kernel." 20
+        ui_msg "$(t status_known_msg "$current" "$report")" 20
     elif [ "$rc" -eq 1 ]; then
-        status="No known CVEs detected"
         log_event "CVE check" "clean for $current"
-        ui_msg "Current Kernel:
-$current
-
-Security Status:
-$status" 14
+        ui_msg "$(t status_clean_msg "$current")" 14
     else
         log_warn "CVE check could not be completed"
-        ui_msg "Current Kernel:
-$current
-
-Security Status:
-Unknown - CVE database unavailable." 14
+        ui_msg "$(t status_unknown_msg "$current")" 14
     fi
 }
 
@@ -115,7 +94,7 @@ Unknown - CVE database unavailable." 14
 run_install_live() {
     local log="$PKS_WORK_DIR/install.log"
     clear
-    echo "=== $PKS_NAME: installing kernel ==="
+    t installing_header "$PKS_NAME"; echo
     echo
     install_deb "$@" 2>&1 | tee "$log"
     return "${PIPESTATUS[0]}"
@@ -128,22 +107,16 @@ install_predefined() {
     local id="$1"
     local version
     version="$(kernel_catalog_version "$id")"
-    [ -n "$version" ] || { ui_msg "Internal error: unknown kernel id '$id'."; return; }
+    [ -n "$version" ] || { ui_msg "$(t err_unknown_id "$id")"; return; }
 
     # Description + advantages/disadvantages.
     ui_msg "$(kernel_catalog_description "$id")" "$PKS_DLG_HEIGHT"
 
     # Confirmation with current vs new.
-    if ! ui_yesno "Kernel: $(kernel_catalog_field "$id" label)
-
-Current Kernel: $(kernel_current)
-New Kernel:     $version
-
-This operation will modify the system.
-
-Continue?"; then
+    if ! ui_yesno "$(t confirm_install \
+            "$(kernel_catalog_field "$id" label)" "$(kernel_current)" "$version")"; then
         log_event "Installation cancelled" "$version"
-        ui_msg "Installation cancelled. No changes were made." 10
+        ui_msg "$(t cancelled_no_changes)" 10
         return
     fi
 
@@ -155,26 +128,15 @@ Continue?"; then
     hdr_dest="$PKS_WORK_DIR/${PKS_HEADERS_PREFIX}${version}${PKS_PACKAGE_SUFFIX}"
 
     # Download image and headers, each with its own progress gauge.
-    ui_gauge_cmd "Downloading image: $version ..." dl_fetch_gauge "$img_url" "$img_dest"
+    ui_gauge_cmd "$(t dl_image_gauge "$version")" dl_fetch_gauge "$img_url" "$img_dest"
     if [ ! -s "$img_dest" ]; then
-        ui_msg "Download failed.
-
-URL:
-$img_url
-
-The kernel was not installed. Check your network connection and try again." 16
+        ui_msg "$(t dl_failed_msg "$img_url")" 16
         return
     fi
 
-    ui_gauge_cmd "Downloading headers: $version ..." dl_fetch_gauge "$hdr_url" "$hdr_dest"
+    ui_gauge_cmd "$(t dl_headers_gauge "$version")" dl_fetch_gauge "$hdr_url" "$hdr_dest"
     if [ ! -s "$hdr_dest" ]; then
-        ui_msg "Header package download failed.
-
-URL:
-$hdr_url
-
-The kernel image was downloaded but headers are missing. Headers are needed for
-DKMS and out-of-tree modules. Nothing was installed. Try again." 16
+        ui_msg "$(t dl_headers_failed_msg "$hdr_url")" 16
         return
     fi
 
@@ -184,15 +146,10 @@ DKMS and out-of-tree modules. Nothing was installed. Try again." 16
         bootloader_update >/dev/null 2>&1
         PKS_NEED_REBOOT=1
         PKS_DID_INSTALL=1
-        ui_msg "Kernel installed successfully:
-
-$version
-
-A reboot is required (you will be reminded on exit)." 14
+        ui_msg "$(t install_ok_msg "$version")" 14
     else
-        ui_textbox_file "$PKS_NAME - Installation Failed" "$PKS_WORK_DIR/install.log"
-        ui_msg "Installation failed. The system was not modified by a successful install.
-Review the log above and at $PKS_LOG_FILE." 12
+        ui_textbox_file "$(t title_install_failed "$PKS_NAME")" "$PKS_WORK_DIR/install.log"
+        ui_msg "$(t install_failed_msg "$PKS_LOG_FILE")" 12
     fi
 }
 
@@ -203,62 +160,41 @@ install_custom() {
     ui_msg "$(kernel_catalog_description custom)" 18
 
     local url
-    url="$(ui_input "Enter kernel source archive URL:" \
+    url="$(ui_input "$(t custom_url_prompt)" \
         "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.1.tar.xz")" || {
         log_event "Custom build cancelled" "at URL prompt"
         return
     }
-    [ -n "$url" ] || { ui_msg "No URL provided. Cancelled." 10; return; }
+    [ -n "$url" ] || { ui_msg "$(t no_url_cancelled)" 10; return; }
 
     need_cmd make gcc tar
-    if ! ui_yesno "Custom Kernel Build
-
-Source: $url
-Current Kernel: $(kernel_current)
-
-This will download, configure and compile a kernel using:
-  make bindeb-pkg LOCALVERSION=\"$PKS_BUILD_LOCALVERSION\"
-
-Compilation can take a long time. Continue?" "Build" "Cancel" 18; then
+    if ! ui_yesno "$(t confirm_build "$url" "$(kernel_current)" "$PKS_BUILD_LOCALVERSION")" \
+            "$(t btn_build)" "$(t btn_cancel)" 18; then
         log_event "Custom build cancelled" "$url"
         return
     fi
 
-    ui_msg "The build is starting and will run in this terminal.
-
-Build output is written to:
-$(build_log_path)
-
-Press OK to begin. This may take a while." 14
+    ui_msg "$(t build_starting_msg "$(build_log_path)")" 14
 
     clear
-    echo "=== $PKS_NAME: building custom kernel ==="
-    echo "Source: $url"
-    echo "Log:    $(build_log_path)"
+    t build_header "$PKS_NAME"; echo
+    t build_source_line "$url"; echo
+    t build_log_line "$(build_log_path)"; echo
     echo
 
     local debdir
     if ! debdir="$(build_custom "$url")"; then
-        ui_textbox_file "$PKS_NAME - Build Failed" "$(build_log_path)"
-        ui_msg "Custom kernel build failed.
-
-Full log: $(build_log_path)
-No packages were installed." 12
+        ui_textbox_file "$(t title_build_failed "$PKS_NAME")" "$(build_log_path)"
+        ui_msg "$(t build_failed_msg "$(build_log_path)")" 12
         return
     fi
 
     local debs
     debs="$(build_list_debs "$debdir")"
-    if ! ui_yesno "Build succeeded. The following packages were produced:
-
-$debs
-
-Current Kernel: $(kernel_current)
-
-Install them now?" "Install" "Cancel" 18; then
+    if ! ui_yesno "$(t confirm_install_built "$debs" "$(kernel_current)")" \
+            "$(t btn_install)" "$(t btn_cancel)" 18; then
         log_event "Custom install cancelled" "$debdir"
-        ui_msg "Packages built but not installed.
-They remain in: $debdir" 10
+        ui_msg "$(t built_not_installed "$debdir")" 10
         return
     fi
 
@@ -270,13 +206,10 @@ They remain in: $debdir" 10
         bootloader_update >/dev/null 2>&1
         PKS_NEED_REBOOT=1
         PKS_DID_INSTALL=1
-        ui_msg "Custom kernel installed successfully.
-
-A reboot is required (you will be reminded on exit)." 12
+        ui_msg "$(t custom_install_ok)" 12
     else
-        ui_textbox_file "$PKS_NAME - Installation Failed" "$PKS_WORK_DIR/install.log"
-        ui_msg "Custom kernel installation failed.
-Review $PKS_LOG_FILE for details." 10
+        ui_textbox_file "$(t title_install_failed "$PKS_NAME")" "$PKS_WORK_DIR/install.log"
+        ui_msg "$(t custom_install_failed "$PKS_LOG_FILE")" 10
     fi
 }
 
@@ -287,7 +220,7 @@ main_menu() {
     local choice
     while true; do
         mapfile -t menu_args < <(kernel_catalog_menu_args)
-        choice="$(ui_menu "Select a kernel to install, or Quit." "${menu_args[@]}")" || {
+        choice="$(ui_menu "$(t menu_prompt)" "${menu_args[@]}")" || {
             # User chose Quit.
             return
         }
@@ -303,9 +236,8 @@ main_menu() {
         # After a successful install, let the user return to the menu or exit
         # rather than dropping straight back into it.
         if [ "$PKS_DID_INSTALL" -eq 1 ]; then
-            if ui_yesno "The kernel was installed successfully.
-
-What would you like to do?" "Return to Menu" "Exit" 12; then
+            if ui_yesno "$(t post_install_prompt)" \
+                    "$(t btn_return_menu)" "$(t btn_exit)" 12; then
                 continue
             fi
             return
