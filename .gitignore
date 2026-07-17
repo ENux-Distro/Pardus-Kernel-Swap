@@ -1,0 +1,12 @@
+# Built Debian packages
+*.deb
+
+# Deb building script
+make-deb.sh
+
+# Kernel source/build working area
+/kernel-build/
+
+# Local runtime/log artefacts
+*.log
+
