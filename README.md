@@ -126,6 +126,23 @@ https://github.com/ENux-Distro/Pardus-Kernel-Swap/releases/download/Kernels/<ver
 where `<version>` is the catalog version string (e.g.
 `7.0.12+pardus25-amd64`).
 
+## Installation
+
+### Installing from the cloned repo
+
+```bash
+sudo ./install.sh        # symlinks bin/pardus-kernel-swap into /usr/local/sbin
+sudo pardus-kernel-swap
+```
+
+### Installing via the .deb package
+
+```bash
+wget https://github.com/ENux-Distro/pardus-code/releases/download/Pardus-Code/pardus-code_amd64.deb      # downloads the .deb package
+sudo apt install ./pardus-code_amd64.deb      # Installs the .deb package via apt using sudo
+```
+
+
 ## License
 
 GPL-2.0.
