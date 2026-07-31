@@ -1,5 +1,7 @@
 # Pardus Kernel Swap
 
+# **Status: Stable**
+
 A classic-style terminal utility for advanced Pardus users to inspect, evaluate
 and swap their running kernel. The interface is pure Bash + whiptail, styled
 after FreeBSD `sysinstall` and 1990s UNIX administration tools: blue background,
